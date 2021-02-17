@@ -11,9 +11,15 @@ public class ForestGenerator : MonoBehaviour
 
     public Transform forest;
     public Tree[] trees;
-    public enum TreeOverride {random, max_probability};
+    public enum DisplayMode {noise, flat_color};
+    public DisplayMode display_mode;
+    public enum TreeOverride {random, max_probability, spawn_all};
     public TreeOverride override_mode;
+    public bool draw_lakes;
     public Color ground_color;
+    public Color water_color;
+    [Range(0,1)]
+    public float max_water_height;
     public float scale;
 
     public Renderer plane;
@@ -21,7 +27,6 @@ public class ForestGenerator : MonoBehaviour
 
     public int width;
     public int height;
-    public Vector2 offset;
 
     [Range (0,0.5f)]
     public float error_margin;
@@ -35,7 +40,8 @@ public class ForestGenerator : MonoBehaviour
         for (int i = 0; i < trees.Length; i++) {
             noise_maps[i] = GenerateNoiseMap(trees[i]);
         }
-        Color[] ground = Ground();
+        float[,] cumulative_noise_map = GenerateCumulativeNoiseMap(noise_maps);
+        Color[] ground = Ground(cumulative_noise_map);
         Texture2D texture = ConvertToTexture(ground);
         DrawGround(texture);
         Spawn(noise_maps);
@@ -60,8 +66,8 @@ public class ForestGenerator : MonoBehaviour
 
         for (int i = 0; i < tree_settings.octaves; i++)
         {
-            float offsetx = prng.Next(-100000, 100000) + offset.x;
-            float offsety = prng.Next(-100000, 100000) - offset.y;
+            float offsetx = prng.Next(-100000, 100000) + tree_settings.offset.x;
+            float offsety = prng.Next(-100000, 100000) - tree_settings.offset.y;
             octave_offsets [i] = new Vector2(offsetx, offsety);
 
             max_possible_height += amplitude;
@@ -105,13 +111,39 @@ public class ForestGenerator : MonoBehaviour
         return noise_map;
     }
 
-    Color[] Ground () {
+    float[,] GenerateCumulativeNoiseMap (float[][,] noise_maps) {
+        float[,] cumulative_noise_map = new float [width, height];
+        for (int y = 0; y < height;  y++) {
+            for (int x = 0; x < width; x++) {
+                float max_height = 0;
+                for (int i = 0; i < trees.Length; i++) {
+                    if (noise_maps[i][x, y] > max_height) {
+                        max_height = noise_maps[i][x, y];
+                    }
+                }
+                cumulative_noise_map[x, y] = max_height;
+            }
+        }
+        return cumulative_noise_map;
+    }
+
+    Color[] Ground (float[,] cumulative_noise_map) {
         
         Color[] map = new Color [width * height];
 
         for (int y = 0; y < height;  y++) {
             for (int x = 0; x < width; x++) {
-                map[y * width + x] = ground_color;
+                if (display_mode == DisplayMode.noise) {
+                    map[y * width + x] = Color.Lerp(Color.white, Color.black, cumulative_noise_map[x, y]);
+                } else if (display_mode == DisplayMode.flat_color && draw_lakes) {
+                    if (cumulative_noise_map[x, y] < max_water_height) {
+                        map[y * width + x] = water_color;
+                    } else {
+                        map[y * width + x] = ground_color;
+                    }
+                } else {
+                    map[y * width + x] = ground_color;
+                }
             }
         }
 
@@ -154,14 +186,24 @@ public class ForestGenerator : MonoBehaviour
                     float errory = Random.Range(-error_margin, error_margin);
                     float spawnx = (-x + width/2 - 0.5f + errorx) * scale;
                     float spawny = (-y + height/2  - 0.5f + errory) * scale;
-                    Tree tree_data;
                     if (override_mode == TreeOverride.random) {
-                        tree_data = SelectRandomTree(trees_to_choose);
+                        Tree tree_data = SelectRandomTree(trees_to_choose);
+                        GameObject tree = Instantiate(tree_data.tree, new Vector3(spawnx, 0, spawny), Quaternion.identity, forest);
+                        tree.transform.localScale = tree.transform.localScale * scale * tree_data.tree_scale;
+                    } else if (override_mode == TreeOverride.max_probability){
+                        Tree tree_data = SelectMaxProbabilityTree(trees_to_choose);
+                        GameObject tree = Instantiate(tree_data.tree, new Vector3(spawnx, 0, spawny), Quaternion.identity, forest);
+                        tree.transform.localScale = tree.transform.localScale * scale * tree_data.tree_scale;
                     } else {
-                        tree_data = SelectMaxProbabilityTree(trees_to_choose);
+                        foreach (Tree tree_data in trees_to_choose) {
+                            errorx = Random.Range(-error_margin, error_margin);
+                            errory = Random.Range(-error_margin, error_margin);
+                            spawnx = (-x + width/2 - 0.5f + errorx) * scale;
+                            spawny = (-y + height/2  - 0.5f + errory) * scale;
+                            GameObject tree = Instantiate(tree_data.tree, new Vector3(spawnx, 0, spawny), Quaternion.identity, forest);
+                            tree.transform.localScale = tree.transform.localScale * scale * tree_data.tree_scale;
+                        }
                     }
-                    GameObject tree = Instantiate(tree_data.tree, new Vector3(spawnx, 0, spawny), Quaternion.identity, forest);
-                    tree.transform.localScale = tree.transform.localScale * scale * tree_data.tree_scale;
                 }
             }
         }
@@ -244,4 +286,6 @@ public class Tree {
 
     [Range(0,1)]
     public float min_height_to_tree;
+
+    public Vector2Int offset;
 }
