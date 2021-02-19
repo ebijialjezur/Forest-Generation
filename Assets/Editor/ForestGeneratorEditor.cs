@@ -13,13 +13,13 @@ public class ForestGeneratorEditor : Editor
         {
             if (generator.auto_update)
             {
-                generator.DrawMap();
+                generator.DrawMapInEditor();
             }
         }
 
         if (GUILayout.Button("Generate"))
         {
-            generator.DrawMap();
+            generator.DrawMapInEditor();
         }
     }
 }
